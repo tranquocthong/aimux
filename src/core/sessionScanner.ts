@@ -66,9 +66,39 @@ function isMetaPrompt(text: string): boolean {
 }
 
 const MAX_SCAN_LINES = 40;
+const HEAD_READ_BYTES = 128 * 1024;
+const FULL_READ_THRESHOLD = 256 * 1024;
+
+function readHeadOrFull(filePath: string, totalSize: number): string {
+  if (totalSize <= FULL_READ_THRESHOLD) {
+    try {
+      return readFileSync(filePath, 'utf-8');
+    } catch {
+      return '';
+    }
+  }
+  let fd: number | undefined;
+  try {
+    fd = openSync(filePath, 'r');
+    const buf = Buffer.alloc(HEAD_READ_BYTES);
+    const n = readSync(fd, buf, 0, HEAD_READ_BYTES, 0);
+    return buf.subarray(0, n).toString('utf-8');
+  } catch {
+    return '';
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
 
 export function parseSessionJsonl(
   path: string,
+  totalSize?: number,
 ): Pick<InteractiveSession, 'cwd' | 'intent' | 'createdAtMs' | 'events'> & {
   isSubagent: boolean;
 } {
@@ -80,14 +110,32 @@ export function parseSessionJsonl(
   let hasQueueOperation = false;
 
   let raw: string;
-  try {
-    raw = readFileSync(path, 'utf-8');
-  } catch {
-    return { cwd, intent, createdAtMs, events, isSubagent: true };
+  if (totalSize === undefined) {
+    try {
+      raw = readFileSync(path, 'utf-8');
+    } catch {
+      return { cwd, intent, createdAtMs, events, isSubagent: true };
+    }
+  } else {
+    raw = readHeadOrFull(path, totalSize);
+    if (!raw) {
+      return { cwd, intent, createdAtMs, events, isSubagent: true };
+    }
   }
 
-  const lines = raw.split('\n');
-  events = lines.filter((l) => l.length > 0).length;
+  const isPartial = totalSize !== undefined && totalSize > FULL_READ_THRESHOLD;
+  const rawLines = raw.split('\n');
+  // Drop the trailing partial line when we only read the head — it is
+  // likely truncated mid-JSON and would just produce a parse miss.
+  const lines = isPartial ? rawLines.slice(0, -1) : rawLines;
+  const nonEmptyCount = lines.reduce((acc, l) => acc + (l.length > 0 ? 1 : 0), 0);
+
+  if (isPartial && totalSize) {
+    const avgLineBytes = nonEmptyCount > 0 ? raw.length / nonEmptyCount : 1024;
+    events = Math.max(nonEmptyCount, Math.round(totalSize / avgLineBytes));
+  } else {
+    events = nonEmptyCount;
+  }
 
   for (let i = 0; i < Math.min(MAX_SCAN_LINES, lines.length); i++) {
     const line = lines[i];
@@ -203,7 +251,7 @@ export function scanInteractiveSessions(
       // permission-mode / file-history-snapshot / user / etc.
       if (quickFirstLineType(filePath) === 'queue-operation') continue;
 
-      const parsed = parseSessionJsonl(filePath);
+      const parsed = parseSessionJsonl(filePath, stat.size);
       if (parsed.isSubagent) continue;
       sessions.push({
         sessionId,
