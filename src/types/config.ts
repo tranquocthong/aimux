@@ -14,6 +14,7 @@ export interface AimuxConfig {
 
 export const DEFAULT_PRIVATE_ELEMENTS = [
   '.credentials.json',
+  '.env',
   '.claude.json',
   '.last-cleanup',
   'policy-limits.json',

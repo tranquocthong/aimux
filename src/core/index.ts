@@ -44,7 +44,7 @@ export {
 
 export type { DetectedDir, InitResult } from './init.js';
 
-export { buildRunParams, launchProfile, looksLikeSubcommand } from './run.js';
+export { buildRunParams, launchProfile, looksLikeSubcommand, parseEnvFile, loadProfileDotEnv } from './run.js';
 export type { RunOptions, RunParams } from './run.js';
 
 export { summarizeUsage, parseSinceDuration, totalTokens } from './usage.js';

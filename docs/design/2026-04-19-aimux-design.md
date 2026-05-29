@@ -121,6 +121,7 @@ aimux run main
 | Element | Reason |
 |---------|--------|
 | `.credentials.json` | OAuth tokens per subscription |
+| `.env` | 3rd-party API credentials (ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN, etc.) |
 | `.claude.json` | Session/account state |
 | `policy-limits.json` | Rate limits per subscription |
 | `mcp-needs-auth-cache.json` | MCP auth per account |
@@ -191,6 +192,11 @@ Interactive migration wizard:
 3. Optionally triggers auth (`--no-auth` to skip)
 4. Updates `config.yaml`
 
+With `--api` flag — interactive prompt for 3rd-party API credentials:
+1. Prompts for Base URL, Auth token (hidden input), default model
+2. Saves to `~/.aimux/profiles/<name>/.env` (private, never symlinked)
+3. Skips OAuth flow — `.env` is the auth mechanism
+
 ### 4.3 `aimux profile list`
 Shows all profiles with status:
 ```
@@ -224,23 +230,25 @@ Shows all profiles with status:
 ### 4.7 `aimux status`
 Overview dashboard:
 ```
-┌─ aimux status ───────────────────────────────┐
-│                                              │
-│  Shared source: ~/.claude                    │
-│  Profiles: 3 (3 authenticated)              │
-│  Shared elements: 26                         │
-│  Private elements: 9                         │
-│                                              │
-│  PROFILES:                                   │
-│  main   ✓ auth   opus-4-7   (source)        │
-│  work   ✓ auth   opus-4-6   26/26 symlinks  │
-│  own    ✓ auth   opus-4-6   26/26 symlinks  │
-│                                              │
-│  Last rebuild: 2 hours ago                   │
-│  Pending syncs: 0                            │
-│                                              │
-└──────────────────────────────────────────────┘
+┌─ aimux status ───────────────────────────────────┐
+│                                                  │
+│  Shared source: ~/.claude                        │
+│  Profiles: 4 (4 authenticated)                  │
+│  Shared elements: 26                             │
+│  Private elements: 10                            │
+│                                                  │
+│  NAME    AUTH              MODEL         SHARED  │
+│  main    ✓ oauth           opus-4-7     (source)│
+│  work    ✓ oauth           opus-4-6     26/26   │
+│  own     ✓ oauth           opus-4-6     26/26   │
+│  myapi   ✓ api (6 vars)    sonnet-4-6   26/26   │
+│                                                  │
+└──────────────────────────────────────────────────┘
 ```
+
+Auth column distinguishes two mechanisms:
+- `✓ oauth` — Claude subscription via OAuth (`.credentials.json`)
+- `✓ api (N vars)` — 3rd-party endpoint via `.env` file
 
 ### 4.8 `aimux auth login <profile>`
 Launches Claude CLI auth flow for specific profile.

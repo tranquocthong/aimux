@@ -4,19 +4,32 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { AimuxConfig, ProfileConfig } from '../types/index.js';
 import { expandHome } from '../core/paths.js';
+import { loadProfileDotEnv } from '../core/run.js';
 import { getSharedElements, checkAllProfiles } from '../core/symlinks.js';
 
 interface Props {
   config: AimuxConfig;
 }
 
-function checkAuth(profile: ProfileConfig): boolean {
+type AuthStatus =
+  | { type: 'oauth'; active: boolean }
+  | { type: 'api'; varCount: number }
+  | { type: 'none' };
+
+function checkAuth(profile: ProfileConfig): AuthStatus {
   const profilePath = expandHome(profile.path);
-  if (existsSync(join(profilePath, '.credentials.json'))) return true;
-  const env: Record<string, string> = {};
-  if (!profile.is_source) {
-    env.CLAUDE_CONFIG_DIR = profilePath;
+
+  const dotEnv = loadProfileDotEnv(profilePath);
+  if (dotEnv['ANTHROPIC_AUTH_TOKEN'] || dotEnv['ANTHROPIC_BASE_URL']) {
+    return { type: 'api', varCount: Object.keys(dotEnv).length };
   }
+
+  if (existsSync(join(profilePath, '.credentials.json'))) {
+    return { type: 'oauth', active: true };
+  }
+
+  const env: Record<string, string> = {};
+  if (!profile.is_source) env.CLAUDE_CONFIG_DIR = profilePath;
   try {
     const result = spawnSync(profile.cli, ['auth', 'status'], {
       env: { ...process.env, ...env },
@@ -24,9 +37,10 @@ function checkAuth(profile: ProfileConfig): boolean {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     const output = result.stdout?.toString() ?? '';
-    return output.includes('"loggedIn": true') || output.includes('"loggedIn":true');
+    const active = output.includes('"loggedIn": true') || output.includes('"loggedIn":true');
+    return { type: 'oauth', active };
   } catch {
-    return false;
+    return { type: 'none' };
   }
 }
 
@@ -41,7 +55,9 @@ function safeGetSharedElements(config: AimuxConfig): string[] {
 export function StatusView({ config }: Props) {
   const profiles = Object.entries(config.profiles);
   const authStatuses = new Map(profiles.map(([name, profile]) => [name, checkAuth(profile)]));
-  const authCount = Array.from(authStatuses.values()).filter(Boolean).length;
+  const authCount = Array.from(authStatuses.values()).filter(
+    s => s.type === 'oauth' ? s.active : s.type === 'api',
+  ).length;
   const sharedEntries = safeGetSharedElements(config);
   const sharedCount = sharedEntries.length;
   const reports = checkAllProfiles(config);
@@ -66,7 +82,8 @@ export function StatusView({ config }: Props) {
           </Box>
 
           {profiles.map(([name, profile]) => {
-            const authed = authStatuses.get(name) ?? false;
+            const auth = authStatuses.get(name) ?? { type: 'none' as const };
+            const authed = auth.type === 'oauth' ? auth.active : auth.type === 'api';
             const isSource = profile.is_source ?? false;
             const report = reports.get(name);
             const healthyShared = isSource ? sharedCount : report?.valid.length ?? 0;
@@ -91,9 +108,10 @@ export function StatusView({ config }: Props) {
                   <Text color={isSource ? 'yellow' : 'white'}>{name}</Text>
                 </Box>
                 <Box width={14}>
-                  <Text color={authed ? 'green' : 'red'}>
-                    {authed ? '✓ active' : '✗ no auth'}
-                  </Text>
+                  {auth.type === 'api'
+                    ? <Text color="cyan">✓ api ({auth.varCount} vars)</Text>
+                    : <Text color={authed ? 'green' : 'red'}>{authed ? '✓ oauth' : '✗ no auth'}</Text>
+                  }
                 </Box>
                 <Box width={20}>
                   <Text dimColor>{profile.model ?? 'default'}</Text>

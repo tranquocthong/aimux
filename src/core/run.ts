@@ -1,7 +1,31 @@
 import { spawn } from 'node:child_process';
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { AimuxConfig } from '../types/index.js';
 import { getProfile } from './config.js';
 import { expandHome } from './paths.js';
+
+export function parseEnvFile(content: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq < 1) continue;
+    result[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1);
+  }
+  return result;
+}
+
+export function loadProfileDotEnv(profilePath: string): Record<string, string> {
+  const envFile = join(profilePath, '.env');
+  if (!existsSync(envFile)) return {};
+  try {
+    return parseEnvFile(readFileSync(envFile, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
 
 export interface RunOptions {
   model?: string;
@@ -45,7 +69,7 @@ export function buildRunParams(
     args.push(...extraArgs);
   }
 
-  const env: Record<string, string> = {};
+  const env: Record<string, string> = { ...loadProfileDotEnv(profilePath) };
   if (!profile.is_source) {
     env.CLAUDE_CONFIG_DIR = profilePath;
   }

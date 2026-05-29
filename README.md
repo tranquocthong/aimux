@@ -10,7 +10,7 @@ Local AI workspace orchestrator — manage multiple AI CLI subscriptions with sh
 
 ## Problem
 
-You have multiple Claude Code subscriptions (personal, work, client) each in separate `~/.claude-*` directories. You maintain symlinks manually, duplicate settings, and juggle bash functions to switch between them.
+You have multiple Claude Code subscriptions (personal, work, client) each in separate `~/.claude-*` directories. You maintain symlinks manually, duplicate settings, and juggle bash functions to switch between them. Or you want to use a self-hosted / 3rd-party Claude API endpoint alongside your subscription.
 
 ## Solution
 
@@ -19,6 +19,7 @@ You have multiple Claude Code subscriptions (personal, work, client) each in sep
 - **Shared layer**: agents, skills, commands, rules, memory, plugins, settings — symlinked from a single source of truth
 - **Private layer**: credentials, rate limits, session state — isolated per profile
 - **Zero duplication**: add a skill once, available everywhere
+- **3rd-party API support**: connect any profile to a custom endpoint via a per-profile `.env` file
 
 ## Install
 
@@ -46,6 +47,18 @@ aimux profile add work  # add a new profile
 aimux auth login work   # OAuth for the new account
 aimux profile update w -m claude-opus-4-6
 aimux run w
+```
+
+### You want to connect a 3rd-party / self-hosted API endpoint
+
+```bash
+aimux profile add myapi --api
+# Configure API endpoint (leave blank to skip a field):
+#   Base URL:        https://api.your-provider.com/v1
+#   Auth token:      [hidden]
+#   Default model:   claude-sonnet-4-6
+# ✓ Credentials saved to ~/.aimux/profiles/myapi/.env
+aimux run myapi
 ```
 
 ### Fresh machine (nothing installed)
@@ -90,7 +103,10 @@ aimux profile update o -m "claude-opus-4-6[1m]"
 | `aimux run work -m claude-sonnet-4-6` | Launch with model override |
 | `aimux agents` | Multi-profile agent view — see and manage claude background sessions across **all** profiles in one TUI |
 | `aimux profile add <name>` | Create new profile with symlinks |
+| `aimux profile add <name> --api` | Create profile for 3rd-party API endpoint (interactive prompt) |
 | `aimux profile update <name>` | Update model/cli settings |
+| `aimux profile update <name> -e KEY=VALUE` | Set env var in profile `.env` file |
+| `aimux profile update <name> --unset-env KEY` | Remove env var from profile `.env` file |
 | `aimux profile list` | List all profiles |
 | `aimux profile remove <name>` | Remove profile and clean up |
 | `aimux profile clone <src> <name>` | Clone profile with private files |
@@ -121,13 +137,16 @@ All profile commands support **prefix matching**: `aimux run w` → `work`, `aim
       agents/ → ~/.claude/agents      ← symlink (shared)
       skills/ → ~/.claude/skills      ← symlink (shared)
       memory/ → ~/.claude/memory      ← symlink (shared)
-      .credentials.json               ← real file (private)
+      .credentials.json               ← real file (private, OAuth)
       .claude.json                    ← real file (private)
-    own/
-      ...same pattern...
+    myapi/
+      agents/ → ~/.claude/agents      ← symlink (shared)
+      .env                            ← real file (private, API credentials)
 ```
 
 When you run `aimux run work`, it sets `CLAUDE_CONFIG_DIR=~/.aimux/profiles/work` and launches the CLI. Claude sees a complete config directory — shared content via symlinks, private auth locally.
+
+For API profiles, aimux additionally loads the profile's `.env` file and injects its variables into the environment before launching.
 
 ## Config
 
@@ -145,22 +164,28 @@ profiles:
     cli: claude
     model: claude-opus-4-6
     path: /home/user/.aimux/profiles/work
-  own:
+  myapi:                                    # 3rd-party API profile
     cli: claude
-    model: claude-opus-4-6
-    path: /home/user/.aimux/profiles/own
+    model: claude-sonnet-4-6
+    path: /home/user/.aimux/profiles/myapi  # has .env with API credentials
 
 private:
   - .credentials.json
+  - .env                  # API credentials — never symlinked, never committed
   - .claude.json
-  - policy-limits.json
-  - mcp-needs-auth-cache.json
-  - remote-settings.json
-  - settings.local.json
-  - stats-cache.json
-  - statsig
-  - telemetry
+  - ...
 ```
+
+For API profiles, credentials live in `~/.aimux/profiles/<name>/.env`:
+
+```bash
+# ~/.aimux/profiles/myapi/.env — do not commit
+ANTHROPIC_BASE_URL=https://api.your-provider.com/v1
+ANTHROPIC_AUTH_TOKEN=sk-your-token...
+ANTHROPIC_MODEL=claude-sonnet-4-6
+```
+
+These are injected as environment variables when the profile is launched. The `.env` file is always private (never symlinked to the shared source).
 
 ## Requirements
 
